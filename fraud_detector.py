@@ -86,6 +86,7 @@ class BankStatementParser:
         HIGH_VALUE_THRESHOLD = 150000  # Adjust based on typical transaction amounts
         FREQUENT_TXN_WINDOW = '24H'
         FREQUENT_TXN_THRESHOLD = 15
+        FREQUENT_TXN_AMOUNT_THRESHOLD = 100000
         # SUSPICIOUS_KEYWORDS = ['casino', 'betting', 'gaming', 'crypto', 'bitcoin', 'forex']
         ROUND_AMOUNT_THRESHOLD = 10000  # Flag round amounts above this threshold
         HIGH_DEBIT_WINDOW = '24H'  # Window to check for multiple high-value debits
@@ -112,7 +113,7 @@ class BankStatementParser:
                 (self.transactions_df['Date'] >= row['Date'] - pd.Timedelta(FREQUENT_TXN_WINDOW)) &
                 (self.transactions_df['Date'] <= row['Date'])
             ]
-            if len(window_txns) >= FREQUENT_TXN_THRESHOLD:
+            if len(window_txns) >= FREQUENT_TXN_THRESHOLD and window_txns['Credit'].sum() >= FREQUENT_TXN_AMOUNT_THRESHOLD:
                 row_flags.append('FREQUENT_TXN')
             
             # Multiple high-value debits in short period
@@ -142,7 +143,7 @@ class BankStatementParser:
         print("\nTransaction Analysis Results:")
         print("-" * 50)
         print(f"Total Transactions: {len(self.transactions_df)}")
-        print(f"Date Range: {self.transactions_df['Date'].min().date()} to {self.transactions_df['Date'].max().date()}")
+        print(f"Date Range: {self.transactions_df['Date'].min().strftime('%d/%m/%Y')} to {self.transactions_df['Date'].max().strftime('%d/%m/%Y')}")
         print(f"Total Debits: ₹{self.transactions_df['Debit'].sum():,.2f}")
         print(f"Total Credits: ₹{self.transactions_df['Credit'].sum():,.2f}")
         
@@ -156,11 +157,15 @@ class BankStatementParser:
                 for flags in self.transactions_df['Flags'].dropna()
                 for flag in flags.split('|')
             ]).value_counts()
-            print(flag_counts)
+            for flag, count in flag_counts.items():
+                print(f"{flag}: {count}")
             
             print("\nDetailed Flagged Transactions:")
             print("-" * 50)
-            print(flagged[['Date', 'Description', 'Debit', 'Credit', 'Flags']])
+            # Format date before printing
+            flagged_formatted = flagged.copy()
+            flagged_formatted['Date'] = flagged_formatted['Date'].dt.strftime('%d/%m/%Y')
+            print(flagged_formatted[['Date', 'Description', 'Debit', 'Credit', 'Flags']])
 
 def main():
     statements_dir = "Bank Statements/Axis"
@@ -181,9 +186,12 @@ def main():
         
         # Save analyzed data with flags
         if parser.transactions_df is not None:
+            # Format date before saving
+            output_df = parser.transactions_df.copy()
+            output_df['Date'] = output_df['Date'].dt.strftime('%d/%m/%Y')
             output_file = os.path.splitext(csv_file)[0] + '_analyzed.csv'
             output_path = os.path.join(statements_dir, output_file)
-            parser.transactions_df.to_csv(output_path, index=False)
+            output_df.to_csv(output_path, index=False)
             print(f"\nAnalyzed data saved to: {output_path}")
 
 if __name__ == "__main__":
