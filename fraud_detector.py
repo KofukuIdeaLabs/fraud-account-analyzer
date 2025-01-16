@@ -1,270 +1,190 @@
 import os
 import re
 import pandas as pd
-import PyPDF2
 from datetime import datetime
 import warnings
 warnings.filterwarnings('ignore')
 
 class BankStatementParser:
-    def __init__(self, pdf_path):
-        self.pdf_path = pdf_path
-        self.raw_text = None
-        self.bank_name = None
+    def __init__(self, csv_path):
+        self.csv_path = csv_path
         self.transactions_df = None
-    
-    def extract_text(self):
-        """Extract text from PDF file"""
+        
+    def load_csv(self):
+        """Load transaction data from CSV file"""
         try:
-            with open(self.pdf_path, 'rb') as file:
-                reader = PyPDF2.PdfReader(file)
-                text = ""
-                for page in reader.pages:
-                    text += page.extract_text() + "\n"
-                self.raw_text = text
-                return True
+            self.transactions_df = pd.read_csv(self.csv_path)
+            # Convert date column to datetime
+            date_col = next(col for col in self.transactions_df.columns if 'date' in col.lower())
+            self.transactions_df[date_col] = pd.to_datetime(self.transactions_df[date_col])
+            return True
         except Exception as e:
-            print(f"Error reading PDF {self.pdf_path}: {str(e)}")
+            print(f"Error reading CSV {self.csv_path}: {str(e)}")
             return False
-    
-    def detect_bank(self):
-        """Detect bank based on PDF content"""
-        text = self.raw_text.lower()
-        
-        if 'hdfc bank' in text:
-            self.bank_name = 'HDFC'
-        elif 'state bank of india' in text or 'sbi' in text:
-            self.bank_name = 'SBI'
-        elif 'icici bank' in text:
-            self.bank_name = 'ICICI'
-        elif 'axis bank' in text:
-            self.bank_name = 'AXIS'
-        elif 'kotak' in text:
-            self.bank_name = 'KOTAK'
-        elif 'yes bank' in text:
-            self.bank_name = 'YES'
-        elif 'federal bank' in text:
-            self.bank_name = 'FEDERAL'
-        elif 'canara bank' in text:
-            self.bank_name = 'CANARA'
-        else:
-            self.bank_name = 'UNKNOWN'
-        
-        print(f"Detected bank: {self.bank_name}")
-    
-    def parse_transactions(self):
-        """Parse transactions based on bank format"""
-        if not self.bank_name:
-            self.detect_bank()
-        
-        if self.bank_name == 'HDFC':
-            self._parse_hdfc()
-        elif self.bank_name == 'ICICI':
-            self._parse_icici()
-        elif self.bank_name == 'AXIS':
-            self._parse_axis()
-        elif self.bank_name == 'KOTAK':
-            self._parse_kotak()
-        elif self.bank_name == 'YES':
-            self._parse_yes_bank()
-        elif self.bank_name == 'FEDERAL':
-            self._parse_federal()
-        elif self.bank_name == 'CANARA':
-            self._parse_canara()
-        else:
-            self._parse_generic()
-    
-    def _extract_date(self, date_str):
-        """Try to parse date string in various formats"""
-        date_formats = [
-            '%d/%m/%y', '%d/%m/%Y', '%d-%m-%y', '%d-%m-%Y',
-            '%Y-%m-%d', '%d%m%y', '%d%m%Y'
-        ]
-        
-        for fmt in date_formats:
-            try:
-                return pd.to_datetime(date_str, format=fmt)
-            except:
-                continue
-        return None
-    
-    def _parse_amount(self, amount_str):
-        """Parse amount string to float"""
-        if isinstance(amount_str, (int, float)):
-            return float(amount_str)
-        
-        # Remove currency symbols and commas
-        amount_str = re.sub(r'[₹,]', '', str(amount_str))
-        # Extract numbers (including decimals)
-        match = re.search(r'[-+]?\d*\.?\d+', amount_str)
-        if match:
-            return float(match.group())
-        return None
-    
-    def _parse_hdfc(self):
-        """Parse HDFC Bank statement format"""
-        lines = self.raw_text.split('\n')
-        transactions = []
-        
-        # Regular expressions for HDFC format
-        date_pattern = r'\d{2}/\d{2}/\d{2,4}'
-        
-        for line in lines:
-            # Skip empty lines
-            if not line.strip():
-                continue
-                
-            # Try to find date at the start of line
-            date_match = re.match(date_pattern, line.strip())
-            if date_match:
-                parts = line.split()
-                if len(parts) >= 4:  # Minimum parts needed for a transaction
-                    date = self._extract_date(parts[0])
-                    
-                    # Look for debit/credit amounts
-                    debit = credit = 0
-                    for i, part in enumerate(parts):
-                        amount = self._parse_amount(part)
-                        if amount is not None:
-                            # Usually last two numbers are debit/credit and balance
-                            if i == len(parts) - 2:
-                                if 'dr' in line.lower():
-                                    debit = amount
-                                else:
-                                    credit = amount
-                            
-                    # Get description (everything between date and amounts)
-                    desc_start = line.find(parts[0]) + len(parts[0])
-                    desc_end = line.rfind(parts[-1])
-                    description = line[desc_start:desc_end].strip()
-                    
-                    if date:
-                        transactions.append({
-                            'Date': date,
-                            'Description': description,
-                            'Debit': debit,
-                            'Credit': credit,
-                            'Balance': self._parse_amount(parts[-1])
-                        })
-        
-        self.transactions_df = pd.DataFrame(transactions)
-        if not self.transactions_df.empty:
-            self.transactions_df = self.transactions_df.sort_values('Date')
-            print(f"\nExtracted {len(self.transactions_df)} transactions")
-            print("\nFirst few transactions:")
-            print(self.transactions_df.head())
-        else:
-            print("No transactions could be extracted")
-    
-    def _parse_icici(self):
-        """Parse ICICI Bank statement format"""
-        # TODO: Implement ICICI specific parsing
-        self._parse_generic()
-    
-    def _parse_axis(self):
-        """Parse Axis Bank statement format"""
-        # TODO: Implement Axis specific parsing
-        self._parse_generic()
-    
-    def _parse_kotak(self):
-        """Parse Kotak Bank statement format"""
-        # TODO: Implement Kotak specific parsing
-        self._parse_generic()
-    
-    def _parse_yes_bank(self):
-        """Parse Yes Bank statement format"""
-        # TODO: Implement Yes Bank specific parsing
-        self._parse_generic()
-    
-    def _parse_federal(self):
-        """Parse Federal Bank statement format"""
-        # TODO: Implement Federal Bank specific parsing
-        self._parse_generic()
-    
-    def _parse_canara(self):
-        """Parse Canara Bank statement format"""
-        # TODO: Implement Canara Bank specific parsing
-        self._parse_generic()
-    
-    def _parse_generic(self):
-        """Generic parsing for unknown bank formats"""
-        lines = self.raw_text.split('\n')
-        transactions = []
-        
-        # Common patterns
-        date_pattern = r'\d{2}[/-]\d{2}[/-]\d{2,4}'
-        amount_pattern = r'(?:(?:Rs|INR|₹)?[,\d]+\.?\d*)'
-        
-        for line in lines:
-            if not line.strip():
-                continue
+
+    def analyze_transactions(self):
+        """Analyze transactions with unified fraud detection rules"""
+        if self.transactions_df is None or self.transactions_df.empty:
+            print("No transactions to analyze")
+            return
             
-            # Look for date
-            date_match = re.search(date_pattern, line)
-            if date_match:
-                date = self._extract_date(date_match.group())
-                
-                # Look for amounts
-                amounts = re.findall(amount_pattern, line)
-                amounts = [self._parse_amount(amt) for amt in amounts if self._parse_amount(amt) is not None]
-                
-                if date and amounts:
-                    # Get description (text between date and first amount)
-                    desc_start = line.find(date_match.group()) + len(date_match.group())
-                    desc_end = line.find(str(amounts[0]))
-                    description = line[desc_start:desc_end].strip()
-                    
-                    transaction = {
-                        'Date': date,
-                        'Description': description,
-                        'Amount': amounts[0] if amounts else None,
-                        'Balance': amounts[-1] if len(amounts) > 1 else None
-                    }
-                    transactions.append(transaction)
+        # Standardize column names using regex patterns
+        cols = self.transactions_df.columns
         
-        self.transactions_df = pd.DataFrame(transactions)
-        if not self.transactions_df.empty:
-            self.transactions_df = self.transactions_df.sort_values('Date')
-            print(f"\nExtracted {len(self.transactions_df)} transactions")
-            print("\nFirst few transactions:")
-            print(self.transactions_df.head())
+        # Date column regex pattern
+        date_pattern = re.compile(r'(trans(action)?[\s_]?)?date|dt|txn[\s_]?d(ate|t)', re.IGNORECASE)
+        date_col = next(col for col in cols if date_pattern.search(col))
+        
+        # Description column regex pattern  
+        desc_pattern = re.compile(r'desc(ription)?|narration|particular(s)?|details|transaction|memo|reference|remark(s)?', re.IGNORECASE)
+        desc_col = next(col for col in cols if desc_pattern.search(col))
+        
+        # Debit column regex pattern
+        debit_pattern = re.compile(r'debit(s)?|withdraw(al)?s?(\(dr\))?|paid[\s_]?out|outflow', re.IGNORECASE)
+        debit_col = next((col for col in cols if debit_pattern.search(col)), None)
+        
+        # Credit column regex pattern
+        credit_pattern = re.compile(r'credit(s)?|deposit(s)?(\(cr\))?|paid[\s_]?in|inflow', re.IGNORECASE)
+        credit_col = next((col for col in cols if credit_pattern.search(col)), None)
+        
+        # If separate debit/credit columns don't exist, look for amount column
+        amount_col = next((col for col in cols if 'amount' in col.lower()), None)
+        if amount_col and not (debit_col and credit_col):
+            # Create debit/credit columns based on amount sign
+            self.transactions_df['Debit'] = self.transactions_df[amount_col].apply(lambda x: abs(x) if x < 0 else 0)
+            self.transactions_df['Credit'] = self.transactions_df[amount_col].apply(lambda x: x if x > 0 else 0)
         else:
-            print("No transactions could be extracted")
+            # Standardize column names
+            self.transactions_df = self.transactions_df.rename(columns={
+                debit_col: 'Debit',
+                credit_col: 'Credit'
+            })
+            
+        self.transactions_df = self.transactions_df.rename(columns={
+            date_col: 'Date',
+            desc_col: 'Description'
+        })
+        
+        # Fill NaN values with 0 for Debit/Credit columns
+        self.transactions_df['Debit'] = self.transactions_df['Debit'].fillna(0)
+        self.transactions_df['Credit'] = self.transactions_df['Credit'].fillna(0)
+        
+        # Sort by date
+        self.transactions_df = self.transactions_df.sort_values('Date')
+        
+        # Add fraud detection flags
+        self._add_fraud_flags()
+        
+        # Print analysis results
+        self._print_analysis()
+
+    def _add_fraud_flags(self):
+        """Add fraud detection flags based on various rules"""
+        flags = []
+        
+        # Configuration for detection rules
+        HIGH_VALUE_THRESHOLD = 150000  # Adjust based on typical transaction amounts
+        FREQUENT_TXN_WINDOW = '24H'
+        FREQUENT_TXN_THRESHOLD = 15
+        # SUSPICIOUS_KEYWORDS = ['casino', 'betting', 'gaming', 'crypto', 'bitcoin', 'forex']
+        ROUND_AMOUNT_THRESHOLD = 10000  # Flag round amounts above this threshold
+        HIGH_DEBIT_WINDOW = '24H'  # Window to check for multiple high-value debits
+        HIGH_DEBIT_THRESHOLD = 3  # Number of high-value debits to trigger flag
+        
+        for idx, row in self.transactions_df.iterrows():
+            row_flags = []
+            
+            # High value transactions
+            transaction_amount = max(row['Debit'], row['Credit'])
+            if transaction_amount > HIGH_VALUE_THRESHOLD:
+                row_flags.append('HIGH_VALUE')
+            
+            # # Suspicious keywords in description
+            # if any(keyword in str(row['Description']).lower() for keyword in SUSPICIOUS_KEYWORDS):
+            #     row_flags.append('SUSPICIOUS_MERCHANT')
+            
+            # Round amounts (for amounts above threshold)
+            if transaction_amount > ROUND_AMOUNT_THRESHOLD and transaction_amount % 1000 == 0:
+                row_flags.append('ROUND_AMOUNT')
+            
+            # Frequent transactions
+            window_txns = self.transactions_df[
+                (self.transactions_df['Date'] >= row['Date'] - pd.Timedelta(FREQUENT_TXN_WINDOW)) &
+                (self.transactions_df['Date'] <= row['Date'])
+            ]
+            if len(window_txns) >= FREQUENT_TXN_THRESHOLD:
+                row_flags.append('FREQUENT_TXN')
+            
+            # Multiple high-value debits in short period
+            debit_window = self.transactions_df[
+                (self.transactions_df['Date'] >= row['Date'] - pd.Timedelta(HIGH_DEBIT_WINDOW)) &
+                (self.transactions_df['Date'] <= row['Date']) &
+                (self.transactions_df['Debit'] > HIGH_VALUE_THRESHOLD)
+            ]
+            if len(debit_window) >= HIGH_DEBIT_THRESHOLD:
+                row_flags.append('MULTIPLE_HIGH_DEBITS')
+            
+            # Large debit followed by multiple small credits
+            if row['Debit'] > HIGH_VALUE_THRESHOLD:
+                future_week = self.transactions_df[
+                    (self.transactions_df['Date'] > row['Date']) &
+                    (self.transactions_df['Date'] <= row['Date'] + pd.Timedelta('7D'))
+                ]
+                if len(future_week[future_week['Credit'] > 0]) >= 3:
+                    row_flags.append('SPLIT_DEPOSITS')
+            
+            flags.append('|'.join(row_flags) if row_flags else None)
+        
+        self.transactions_df['Flags'] = flags
+
+    def _print_analysis(self):
+        """Print analysis results and statistics"""
+        print("\nTransaction Analysis Results:")
+        print("-" * 50)
+        print(f"Total Transactions: {len(self.transactions_df)}")
+        print(f"Date Range: {self.transactions_df['Date'].min().date()} to {self.transactions_df['Date'].max().date()}")
+        print(f"Total Debits: ₹{self.transactions_df['Debit'].sum():,.2f}")
+        print(f"Total Credits: ₹{self.transactions_df['Credit'].sum():,.2f}")
+        
+        # Flagged transactions summary
+        flagged = self.transactions_df[self.transactions_df['Flags'].notna()]
+        if not flagged.empty:
+            print("\nFlagged Transactions Summary:")
+            print("-" * 50)
+            flag_counts = pd.Series([
+                flag
+                for flags in self.transactions_df['Flags'].dropna()
+                for flag in flags.split('|')
+            ]).value_counts()
+            print(flag_counts)
+            
+            print("\nDetailed Flagged Transactions:")
+            print("-" * 50)
+            print(flagged[['Date', 'Description', 'Debit', 'Credit', 'Flags']])
 
 def main():
-    statements_dir = "Bank Statements"
+    statements_dir = "Bank Statements/Axis"
+    csv_file = "923010030924818-01-01-2023to18-11-2024bankaxis.csv"  # Process single CSV file
+    csv_path = os.path.join(statements_dir, csv_file)
     
-    # Get the first PDF file
-    pdf_files = [f for f in os.listdir(statements_dir) if f.lower().endswith('.pdf')]
-    if not pdf_files:
-        print("No PDF files found in the Bank Statements directory")
+    if not os.path.exists(csv_path):
+        print(f"File not found: {csv_path}")
         return
-    
-    first_pdf = pdf_files[0]
-    pdf_path = os.path.join(statements_dir, first_pdf)
-    print(f"Processing: {first_pdf}")
-    
-    # Parse the PDF
-    parser = BankStatementParser(pdf_path)
-    if parser.extract_text():
-        parser.parse_transactions()
         
+    print(f"\nProcessing: {csv_file}")
+    print("=" * 50)
+    
+    # Parse and analyze the CSV
+    parser = BankStatementParser(csv_path)
+    if parser.load_csv():
+        parser.analyze_transactions()
+        
+        # Save analyzed data with flags
         if parser.transactions_df is not None:
-            # Save to CSV for inspection
-            output_file = os.path.splitext(first_pdf)[0] + '_parsed.csv'
-            parser.transactions_df.to_csv(output_file, index=False)
-            print(f"\nParsed data saved to: {output_file}")
-            
-            # Print some basic statistics
-            print("\nBasic Statistics:")
-            if 'Amount' in parser.transactions_df.columns:
-                print("Total Amount:", parser.transactions_df['Amount'].sum())
-            elif 'Debit' in parser.transactions_df.columns and 'Credit' in parser.transactions_df.columns:
-                print("Total Debits:", parser.transactions_df['Debit'].sum())
-                print("Total Credits:", parser.transactions_df['Credit'].sum())
-            print("Number of Transactions:", len(parser.transactions_df))
-            if 'Date' in parser.transactions_df.columns:
-                print("Date Range:", parser.transactions_df['Date'].min(), "to", parser.transactions_df['Date'].max())
+            output_file = os.path.splitext(csv_file)[0] + '_analyzed.csv'
+            output_path = os.path.join(statements_dir, output_file)
+            parser.transactions_df.to_csv(output_path, index=False)
+            print(f"\nAnalyzed data saved to: {output_path}")
 
 if __name__ == "__main__":
     main() 
