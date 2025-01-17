@@ -1,6 +1,9 @@
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
+import re
+from tqdm import tqdm
+import time
 
 # Enhanced fraud detection class that implements multiple detection patterns and methods
 class EnhancedFraudDetector:
@@ -11,28 +14,88 @@ class EnhancedFraudDetector:
             # Common in scams where fraudsters collect small amounts from multiple victims
             'SMALL_TRANSFER_MIN': 1000,  # Minimum amount to consider as suspicious small transfer
             'SMALL_TRANSFER_MAX': 5000,  # Maximum amount to consider as suspicious small transfer  
-            'SIMILAR_TRANSFER_WINDOW': '48H',  # Time window to look for similar transfers
+            'SIMILAR_TRANSFER_WINDOW': '48h',  # Time window to look for similar transfers
             'MIN_SIMILAR_TRANSFERS': 5,  # Minimum number of similar transfers to flag as suspicious
-            'QUICK_WITHDRAWAL_WINDOW': '24H',  # Time window to check for withdrawals after transfers
+            'QUICK_WITHDRAWAL_WINDOW': '24h',  # Time window to check for withdrawals after transfers
             
             # Pattern 2: Structuring (Breaking large amounts into smaller ones to avoid detection)
-            'STRUCTURING_WINDOW': '72H',  # Time window to check for structured transactions
+            'STRUCTURING_WINDOW': '72h',  # Time window to check for structured transactions
             'STRUCTURING_MIN_TRANSACTIONS': 3,  # Minimum number of related transactions to consider structuring
             'STRUCTURING_AMOUNT_THRESHOLD': 50000,  # Total amount threshold for structuring pattern
             
             # Pattern 3: Rapid money movement (Quick cycles of deposits and withdrawals)
-            'RAPID_MOVEMENT_WINDOW': '24H',  # Window to check for rapid money movement
+            'RAPID_MOVEMENT_WINDOW': '24h',  # Window to check for rapid money movement
             'RAPID_MOVEMENT_MIN_CYCLES': 2,  # Minimum number of deposit-withdrawal cycles to flag
             
             # Pattern 4: Unusual transaction timing (Off-hours and weekend activity)
-            'OFF_HOURS_START': 23,  # Start of off-hours period (11 PM)
-            'OFF_HOURS_END': 4,     # End of off-hours period (4 AM)
+            'OFF_HOURS_START': 22,  # Start of off-hours period (10 PM)
+            'OFF_HOURS_END': 5,     # End of off-hours period (5 AM)
             'WEEKEND_THRESHOLD': 0.7,  # Percentage of weekend transactions to consider suspicious
             
             # Pattern 5: Network analysis (Connections between accounts)
             'COMMON_BENEFICIARY_THRESHOLD': 3,  # Number of accounts sending to same beneficiary to flag
             'NETWORK_ANALYSIS_WINDOW': '7D'  # Time window for analyzing account networks
         }
+
+    def standardize_columns(self, df):
+        """
+        Standardize column names using regex patterns to handle different bank statement formats.
+        
+        Args:
+            df: DataFrame containing transaction data
+        Returns:
+            DataFrame: Data with standardized column names
+        """
+        print("\nStandardizing column names...")
+        time.sleep(2)
+        cols = df.columns
+        standardized_df = df.copy()
+        
+        # Date column regex pattern
+        date_pattern = re.compile(r'(trans(action)?[\s_]?)?date|dt|txn[\s_]?d(ate|t)', re.IGNORECASE)
+        date_col = next((col for col in cols if date_pattern.search(col)), None)
+        
+        # Description column regex pattern  
+        desc_pattern = re.compile(r'desc(ription)?|narration|particular(s)?|details|transaction|memo|reference|remark(s)?', re.IGNORECASE)
+        desc_col = next((col for col in cols if desc_pattern.search(col)), None)
+        
+        # Debit column regex pattern
+        debit_pattern = re.compile(r'debit(s)?|withdraw(al)?s?(\(dr\))?|paid[\s_]?out|outflow', re.IGNORECASE)
+        debit_col = next((col for col in cols if debit_pattern.search(col)), None)
+        
+        # Credit column regex pattern
+        credit_pattern = re.compile(r'credit(s)?|deposit(s)?(\(cr\))?|paid[\s_]?in|inflow', re.IGNORECASE)
+        credit_col = next((col for col in cols if credit_pattern.search(col)), None)
+        
+        # If separate debit/credit columns don't exist, look for amount column
+        amount_col = next((col for col in cols if 'amount' in col.lower()), None)
+        
+        # Standardize the columns
+        if date_col:
+            standardized_df = standardized_df.rename(columns={date_col: 'Date'})
+        
+        if desc_col:
+            standardized_df = standardized_df.rename(columns={desc_col: 'Description'})
+        
+        if amount_col and not (debit_col and credit_col):
+            standardized_df['Debit'] = standardized_df[amount_col].apply(lambda x: abs(x) if x < 0 else 0)
+            standardized_df['Credit'] = standardized_df[amount_col].apply(lambda x: x if x > 0 else 0)
+            standardized_df = standardized_df.drop(columns=[amount_col])
+        else:
+            if debit_col:
+                standardized_df = standardized_df.rename(columns={debit_col: 'Debit'})
+            if credit_col:
+                standardized_df = standardized_df.rename(columns={credit_col: 'Credit'})
+        
+        # Fill NaN values with 0 for Debit/Credit columns
+        if 'Debit' in standardized_df.columns:
+            standardized_df['Debit'] = standardized_df['Debit'].fillna(0)
+        if 'Credit' in standardized_df.columns:
+            standardized_df['Credit'] = standardized_df['Credit'].fillna(0)
+        
+        print("\nColumn standardization complete.")
+        time.sleep(2)
+        return standardized_df
 
     def detect_small_transfer_patterns(self, df):
         """
@@ -44,8 +107,11 @@ class EnhancedFraudDetector:
         Returns:
             list: Flags indicating suspicious small transfer patterns
         """
+        print("\nDetecting small transfer patterns...")
+        time.sleep(2)
         flags = []
-        for idx, row in df.iterrows():
+        for idx in tqdm(range(len(df)), desc="Analyzing transfers"):
+            row = df.iloc[idx]
             # Get transactions within configured time window before current transaction
             window_before = df[
                 (df['Date'] >= row['Date'] - pd.Timedelta(self.config['SIMILAR_TRANSFER_WINDOW'])) &
@@ -86,8 +152,11 @@ class EnhancedFraudDetector:
         Returns:
             list: Flags indicating potential structuring
         """
+        print("\nDetecting structuring patterns...")
+        time.sleep(2)
         flags = []
-        for idx, row in df.iterrows():
+        for idx in tqdm(range(len(df)), desc="Analyzing structuring"):
+            row = df.iloc[idx]
             # Get transactions within configured structuring window
             window = df[
                 (df['Date'] >= row['Date'] - pd.Timedelta(self.config['STRUCTURING_WINDOW'])) &
@@ -120,8 +189,11 @@ class EnhancedFraudDetector:
         Returns:
             list: Flags indicating suspicious rapid money movement
         """
+        print("\nDetecting rapid money movement patterns...")
+        time.sleep(2)
         flags = []
-        for idx, row in df.iterrows():
+        for idx in tqdm(range(len(df)), desc="Analyzing money movement"):
+            row = df.iloc[idx]
             # Get transactions within rapid movement window
             window = df[
                 (df['Date'] >= row['Date']) &
@@ -156,8 +228,11 @@ class EnhancedFraudDetector:
         Returns:
             list: Flags indicating suspicious timing patterns
         """
+        print("\nDetecting unusual timing patterns...")
+        time.sleep(2)
         flags = []
-        for idx, row in df.iterrows():
+        for idx in tqdm(range(len(df)), desc="Analyzing timing"):
+            row = df.iloc[idx]
             hour = row['Date'].hour
             is_weekend = row['Date'].weekday() >= 5
             
@@ -189,8 +264,11 @@ class EnhancedFraudDetector:
         Returns:
             list: Flags indicating suspicious network patterns
         """
+        print("\nDetecting network patterns...")
+        time.sleep(2)
         flags = []
-        for idx, row in df.iterrows():
+        for idx in tqdm(range(len(df)), desc="Analyzing networks"):
+            row = df.iloc[idx]
             # Get transactions within network analysis window
             window = df[
                 (df['Date'] >= row['Date'] - pd.Timedelta(self.config['NETWORK_ANALYSIS_WINDOW'])) &
@@ -220,8 +298,16 @@ class EnhancedFraudDetector:
         Returns:
             DataFrame: Original data with added fraud flags
         """
+        print("\nStarting fraud detection analysis...")
+        time.sleep(2)
+        print("\nTotal transactions to analyze:", len(df))
+        time.sleep(2)
+        
+        # Standardize column names first
+        df = self.standardize_columns(df)
+        
         # Ensure date column is in datetime format
-        df['Date'] = pd.to_datetime(df['Date'])
+        df['Date'] = pd.to_datetime(df['Date'], dayfirst=True)
         
         # Apply all detection methods
         pattern_flags = self.detect_small_transfer_patterns(df)
@@ -230,6 +316,8 @@ class EnhancedFraudDetector:
         timing_flags = self.detect_unusual_timing(df)
         network_flags = self.detect_network_patterns(df)
         
+        print("\nCombining detection results...")
+        time.sleep(2)
         # Combine all flags for each transaction
         combined_flags = []
         for i in range(len(df)):
@@ -240,6 +328,14 @@ class EnhancedFraudDetector:
             combined_flags.append('|'.join(row_flags) if row_flags else None)
         
         df['Fraud_Flags'] = combined_flags
+        
+        # Print summary of findings
+        flagged_transactions = df['Fraud_Flags'].notna().sum()
+        print(f"\nAnalysis complete!")
+        time.sleep(2)
+        print(f"\nFound {flagged_transactions} suspicious transactions out of {len(df)} total transactions")
+        print(f"\nDetection rate: {(flagged_transactions/len(df)*100):.2f}%")
+        
         return df
 
     def get_risk_score(self, df):
@@ -251,6 +347,8 @@ class EnhancedFraudDetector:
         Returns:
             list: Risk scores between 0 and 1 for each transaction
         """
+        print("\nCalculating risk scores...")
+        time.sleep(2)
         # Weights for different types of flags
         flag_weights = {
             'SCAM_PATTERN_SMALL_TRANSFERS': 0.8,  # Highest risk
@@ -261,7 +359,7 @@ class EnhancedFraudDetector:
         }
         
         risk_scores = []
-        for flags in df['Fraud_Flags'].fillna(''):
+        for flags in tqdm(df['Fraud_Flags'].fillna(''), desc="Calculating scores"):
             if flags:
                 flag_list = flags.split('|')
                 score = sum(flag_weights.get(flag, 0) for flag in flag_list)
@@ -276,7 +374,7 @@ class EnhancedFraudDetector:
 detector = EnhancedFraudDetector()
 
 # Load and prepare transaction data
-df = pd.read_csv('transactions.csv')
+df = pd.read_csv('Bank Statements/Axis/923010030924818-01-01-2023to18-11-2024bankaxis.csv')
 
 # Analyze transactions
 analyzed_df = detector.analyze_transactions(df)
