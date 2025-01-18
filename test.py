@@ -56,7 +56,7 @@ class EnhancedFraudDetector:
             'TRANSACTION_SPIKE': 0.7,
             'UNUSUAL_SMALL_TRANSACTIONS': 0.4,
             'ROUND_TRIP_DETECTED': 0.8,
-            'DORMANT_ACCOUNT_ACTIVITY': 0.9,
+            'DORMANT_ACCOUNT_ACTIVITY': 0.5,
             'HIGH_WITHDRAWAL': 0.8,
             'MULTIPLE_UNIQUE_RECIPIENTS': 0.6,
             
@@ -87,6 +87,7 @@ class EnhancedFraudDetector:
         desc_pattern = re.compile(r'desc(ription)?|narration|particular(s)?|details|transaction|memo|reference|remark(s)?', re.IGNORECASE)
         debit_pattern = re.compile(r'debit(s)?|withdraw(al)?s?(\(dr\))?|paid[\s_]?out|outflow', re.IGNORECASE)
         credit_pattern = re.compile(r'credit(s)?|deposit(s)?(\(cr\))?|paid[\s_]?in|inflow', re.IGNORECASE)
+        balance_pattern = re.compile(r'balance|bal|closing[\s_]?bal', re.IGNORECASE)
         
         # Find matching columns using regex patterns
         date_col = next((col for col in cols if date_pattern.search(col)), None)
@@ -94,6 +95,7 @@ class EnhancedFraudDetector:
         debit_col = next((col for col in cols if debit_pattern.search(col)), None)
         credit_col = next((col for col in cols if credit_pattern.search(col)), None)
         amount_col = next((col for col in cols if 'amount' in col.lower()), None)
+        balance_col = next((col for col in cols if balance_pattern.search(col)), None)
         
         # Standardize column names
         if date_col:
@@ -114,6 +116,13 @@ class EnhancedFraudDetector:
                 standardized_df = standardized_df.rename(columns={debit_col: 'Debit'})
             if credit_col:
                 standardized_df = standardized_df.rename(columns={credit_col: 'Credit'})
+        
+        # Handle balance column
+        if balance_col:
+            standardized_df = standardized_df.rename(columns={balance_col: 'Balance'})
+        else:
+            # Calculate running balance if not provided
+            standardized_df['Balance'] = (standardized_df['Credit'].fillna(0) - standardized_df['Debit'].fillna(0)).cumsum()
         
         # Fill missing values with 0
         if 'Debit' in standardized_df.columns:
@@ -512,9 +521,6 @@ class EnhancedFraudDetector:
         print("\nDetecting high-value withdrawals...")
         flags = []
         
-        # Calculate running balance
-        df['Balance'] = (df['Credit'] - df['Debit']).cumsum()
-        
         # Analyze each transaction
         for idx in tqdm(range(len(df)), desc="Analyzing withdrawals"):
             row = df.iloc[idx]
@@ -655,13 +661,13 @@ class EnhancedFraudDetector:
 detector = EnhancedFraudDetector()
 
 # Load and prepare transaction data
-df = pd.read_csv('Bank Statements/Axis/923010030924818-01-01-2023to18-11-2024bankaxis.csv')
+df = pd.read_csv('normal_transactions.csv')
 
 # Analyze transactions
 analyzed_df = detector.analyze_transactions(df)
 
 # Calculate risk scores
-analyzed_df['Risk_Score'] = detector.get_risk_score(analyzed_df)
+analyzed_df['Risk_Score'] = detector.calculate_comprehensive_risk_score(analyzed_df)
 
 # Show high-risk transactions (risk score > 0.7)
 high_risk = analyzed_df[analyzed_df['Risk_Score'] > 0.7]
