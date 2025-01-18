@@ -37,7 +37,7 @@ class EnhancedFraudDetector:
             'NETWORK_ANALYSIS_WINDOW': '7D',
             
             # New configuration parameters for additional rules
-            'TRANSACTION_SPIKE_WINDOW': '7D',  # Window to analyze transaction spikes
+            'TRANSACTION_SPIKE_WINDOW': '3D',  # Window to analyze transaction spikes
             'TRANSACTION_SPIKE_THRESHOLD': 2.0,  # Multiple of standard deviation to consider as spike
             'UNUSUAL_SMALL_TXN_THRESHOLD': 100,  # Amount below which to consider as unusual small transaction
             'UNUSUAL_SMALL_TXN_FREQUENCY': 10,  # Number of small transactions to consider suspicious
@@ -649,7 +649,7 @@ class EnhancedFraudDetector:
                     multiplier += 0.1 * pattern_diversity  # Increase score for diverse patterns
                 
                 # Cap final score at 1.0
-                final_score = min(base_score * multiplier, 1.0)
+                final_score = max(base_score * multiplier, 0.0)
                 risk_scores.append(final_score)
             else:
                 risk_scores.append(0.0)
@@ -661,7 +661,7 @@ class EnhancedFraudDetector:
 detector = EnhancedFraudDetector()
 
 # Load and prepare transaction data
-df = pd.read_csv('normal_transactions.csv')
+df = pd.read_csv('suspicious_transactions.csv')
 
 # Analyze transactions
 analyzed_df = detector.analyze_transactions(df)
